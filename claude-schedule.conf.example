@@ -1,0 +1,20 @@
+# Settings for start-claude.sh in this project. Edit freely, or run
+# ./setup.sh to be walked through each one (it rewrites this file).
+
+# Human-friendly part of the Remote Control session name
+# ("<hostname>-<SESSION>-<timestamp>"). Comment out to use the project
+# folder name. Does not affect the tmux session name.
+# SESSION="my-project"
+
+# Text typed into the claude session once it boots.
+PROMPT="hello"
+
+# Seconds to wait after launching claude before typing PROMPT.
+BOOT_WAIT=5
+
+# Minutes of no pane output before an old session from this project is
+# killed by the next run's cleanup.
+IDLE_MINUTES=30
+
+# Cron schedule (crontab syntax). setup.sh installs/updates it.
+# CRON_SCHEDULE="0 9 * * *"
