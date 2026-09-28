@@ -3,17 +3,36 @@
 # walks through each claude-schedule.conf setting (Enter keeps the current
 # value), and installs/updates/removes the cron entry for start-claude.sh
 # (which lives right next to this script). Safe to re-run any time.
-# See README.md in this folder for full instructions.
+# See README.md for full instructions.
 #
-# These scripts are synced from https://github.com/Yuzhouboat/claude-session
-# — edit them there and run its sync.sh, not in a project's copy. Only
-# claude-schedule.conf (and the log) belong to the project.
+# Not run directly: each project's claude-session/setup.sh (the bootstrap)
+# fetches this repo into claude-session/.upstream/ and execs this script
+# from there. Project-owned files (claude-schedule.conf, claude-tmux.log)
+# live one level up, in <project>/claude-session/.
 set -euo pipefail
 
-SESSION_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ "$(basename "$SCRIPT_DIR")" != ".upstream" ]; then
+    echo "Run this through a project's claude-session/setup.sh (see README.md),"
+    echo "not from the claude-session repo itself."
+    exit 1
+fi
+SESSION_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 PROJECT_DIR="$(cd "$SESSION_DIR/.." && pwd)"
-SCRIPT_PATH="$SESSION_DIR/start-claude.sh"
+SCRIPT_PATH="$SCRIPT_DIR/start-claude.sh"
 CONFIG_FILE="$SESSION_DIR/claude-schedule.conf"
+# Where start-claude.sh lived before the bootstrap layout (a committed copy
+# next to the project's setup.sh). A crontab line pointing there is ours too.
+LEGACY_SCRIPT_PATH="$SESSION_DIR/start-claude.sh"
+
+# This project's crontab line(s), current or legacy path.
+our_cron_lines() {
+    crontab -l 2>/dev/null | grep -F -e "$SCRIPT_PATH" -e "$LEGACY_SCRIPT_PATH" || true
+}
+# The crontab minus this project's line(s).
+other_cron_lines() {
+    crontab -l 2>/dev/null | grep -Fv -e "$SCRIPT_PATH" -e "$LEGACY_SCRIPT_PATH" || true
+}
 
 # --- Quick remove: `./setup.sh remove` tears down cron + the live tmux
 # session without walking through the full wizard. Leaves
@@ -32,7 +51,7 @@ if [ "${1:-}" = "remove" ] || [ "${1:-}" = "--remove" ]; then
     # Control name, not for finding/killing tmux sessions here).
     TMUX_BASE="$(printf '%s' "$PROJECT_DIR" | tr '/' '-' | sed 's/^-//')"
 
-    existing="$(crontab -l 2>/dev/null | grep -F "$SCRIPT_PATH" || true)"
+    existing="$(our_cron_lines)"
 
     matching_sessions=()
     if command -v tmux >/dev/null 2>&1; then
@@ -68,7 +87,7 @@ if [ "${1:-}" = "remove" ] || [ "${1:-}" = "--remove" ]; then
     fi
 
     if [ -n "$existing" ]; then
-        crontab -l 2>/dev/null | grep -Fv "$SCRIPT_PATH" | crontab -
+        other_cron_lines | crontab -
         echo "Removed crontab entry."
     fi
     for s in "${matching_sessions[@]}"; do
@@ -81,7 +100,7 @@ if [ "${1:-}" = "remove" ] || [ "${1:-}" = "--remove" ]; then
 fi
 
 echo "Setting up scheduled Claude for: $PROJECT_DIR"
-echo "claude-session version: $(cat "$SESSION_DIR/VERSION" 2>/dev/null || echo unknown)"
+echo "claude-session version: $(cat "$SCRIPT_DIR/VERSION" 2>/dev/null || echo unknown)"
 echo
 
 # --- Sanity check: the pieces should already be here -----------------------
@@ -93,8 +112,8 @@ fi
 # First setup in a project: start from the example (the wizard below
 # rewrites it with this project's answers anyway).
 if [ ! -f "$CONFIG_FILE" ]; then
-    if [ -f "$CONFIG_FILE.example" ]; then
-        cp "$CONFIG_FILE.example" "$CONFIG_FILE"
+    if [ -f "$SCRIPT_DIR/claude-schedule.conf.example" ]; then
+        cp "$SCRIPT_DIR/claude-schedule.conf.example" "$CONFIG_FILE"
     else
         : > "$CONFIG_FILE"
     fi
@@ -262,12 +281,19 @@ echo "  CRON_SCHEDULE = ${CRON_SCHEDULE:-<none>}"
 echo
 
 # --- Apply the cron schedule -----------------------------------------------
-existing="$(crontab -l 2>/dev/null | grep -F "$SCRIPT_PATH" || true)"
+existing="$(our_cron_lines)"
 
 if [ -n "$CRON_SCHEDULE" ]; then
     CRON_LINE="$CRON_SCHEDULE $SCRIPT_PATH"
     if [ "$existing" = "$CRON_LINE" ]; then
         echo "Crontab already has this exact entry — nothing to do."
+    elif [ -n "$existing" ] && ! printf '%s\n' "$existing" | grep -qF "$SCRIPT_PATH"; then
+        # Only legacy-path line(s): that script no longer exists, so moving
+        # the entry to the new path is the only sensible choice — no prompt.
+        (other_cron_lines; echo "$CRON_LINE") | crontab -
+        echo "Migrated crontab entry to the new script path:"
+        echo "  was: $existing"
+        echo "  now: $CRON_LINE"
     elif [ -n "$existing" ]; then
         echo "Existing crontab entry for this script:"
         echo "  $existing"
@@ -275,7 +301,7 @@ if [ -n "$CRON_SCHEDULE" ]; then
         echo "  $CRON_LINE"
         read -rp "Replace it? [y/N] " ans
         if [[ "$ans" =~ ^[Yy]$ ]]; then
-            (crontab -l 2>/dev/null | grep -Fv "$SCRIPT_PATH"; echo "$CRON_LINE") | crontab -
+            (other_cron_lines; echo "$CRON_LINE") | crontab -
             echo "Replaced crontab entry."
         else
             echo "Left existing entry unchanged."
@@ -298,7 +324,7 @@ elif [ -n "$existing" ]; then
     if [ "$cron_cleared" = 1 ]; then
         read -rp "Remove it from crontab too? [y/N] " ans
         if [[ "$ans" =~ ^[Yy]$ ]]; then
-            crontab -l 2>/dev/null | grep -Fv "$SCRIPT_PATH" | crontab -
+            other_cron_lines | crontab -
             echo "Removed from crontab."
         else
             echo "Left it in crontab, even though claude-schedule.conf no longer tracks a schedule."

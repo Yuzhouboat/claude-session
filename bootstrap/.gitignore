@@ -1,0 +1,5 @@
+# Fetched by setup.sh from https://github.com/Yuzhouboat/claude-session
+.upstream/
+
+# Per-run log: hostname, session names, prompts — changes every hour.
+claude-tmux.log

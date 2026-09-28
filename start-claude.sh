@@ -17,16 +17,19 @@
 #     SESSION is the human-friendly label from claude-schedule.conf). This
 #     is the name you'll recognize when connecting from another device.
 #
-# Meant to be called from cron; set up via ./setup.sh. See README.md in
-# this folder for full instructions.
+# Meant to be called from cron; set up via the project's
+# claude-session/setup.sh. See README.md for full instructions.
 #
-# Synced from https://github.com/Yuzhouboat/claude-session — edit it there
-# and run its sync.sh, not in a project's copy.
+# Lives in <project>/claude-session/.upstream/ — a checkout of
+# https://github.com/Yuzhouboat/claude-session that the project's setup.sh
+# fetches. Project-owned files (claude-schedule.conf, claude-tmux.log) sit
+# one level up, in <project>/claude-session/.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-CONFIG_FILE="$SCRIPT_DIR/claude-schedule.conf"
+SESSION_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+PROJECT_DIR="$(cd "$SESSION_DIR/.." && pwd)"
+CONFIG_FILE="$SESSION_DIR/claude-schedule.conf"
 
 # Hostname is always prepended to the Remote Control session base — fixed
 # here, not configurable via claude-schedule.conf — so SESSION only ever
@@ -55,7 +58,7 @@ REMOTE_BASE="${HOST}-${SESSION}"
 # own past sessions.
 TMUX_BASE="$(printf '%s' "$PROJECT_DIR" | tr '/' '-' | sed 's/^-//')"
 
-LOG="$SCRIPT_DIR/claude-tmux.log"
+LOG="$SESSION_DIR/claude-tmux.log"
 
 export PATH="$HOME/.local/bin:$PATH"
 
@@ -121,8 +124,8 @@ TIMESTAMP="$(date +%H%M-%m%d%Y)"
 NEW_SESSION="${TMUX_BASE}-${TIMESTAMP}"
 REMOTE_PREFIX="${REMOTE_BASE}-${TIMESTAMP}"
 
-# Credentials (GH token, Airflow DB creds, etc.) for skills like
-# auditing-dags/debugging-dags. Cron doesn't inherit your interactive
+# Credentials (API tokens, database creds, etc.) the project's skills
+# need. Cron doesn't inherit your interactive
 # shell's exports, so source them from ~/.env (shared across projects)
 # inside the tmux pane itself, right before exec'ing claude.
 ENV_FILE="$HOME/.env"
