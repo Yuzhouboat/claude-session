@@ -166,11 +166,30 @@ you through the rest, including trusting the new folder.
 
 ## Updating the scripts
 
-Edit in the `claude-session` repo, bump `VERSION`, commit, then run
-`./sync.sh` there. It copies the synced files into every project listed in
-`sync-targets.local` (or the paths you pass it), never touches
-`claude-schedule.conf`, and prints each project's `git diff` — review and
-commit in each project yourself.
+In the `claude-session` repo:
+```bash
+# edit…, then:
+echo "1.1.0" > VERSION
+git commit -am "What changed" && git push
+./sync.sh ~/Y_Know          # optional: try it on one project first
+./sync.sh --push            # sync, commit and push every project
+```
+`sync.sh` copies the synced files into every project listed in
+`sync-targets.local` (or the paths you pass it) and never touches
+`claude-schedule.conf`.
+
+- No flag: copy and show what changed; you commit yourself.
+- `--commit`: also commit the synced files in each project as
+  `Sync claude-session <version> (<upstream commit>)`.
+- `--push`: `--commit`, then push.
+
+`--commit`/`--push` refuse to run while `claude-session` has uncommitted
+changes, and skip (with a `!!` line) any project that isn't on its default
+branch or already has other changes staged. A project with uncommitted
+edits to its synced copy is skipped too unless you add `--force`.
+
+Cron runs the files on disk, so a sync is live on this machine at the next
+scheduled run, even before it's committed.
 
 ## Using it day to day
 

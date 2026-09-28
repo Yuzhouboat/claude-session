@@ -1,14 +1,28 @@
 #!/usr/bin/env bash
 # Copies this repo's claude-session files into each project's
 # claude-session/ folder, then shows what changed there. Never touches a
-# project's claude-schedule.conf or log, and never commits — review the
-# diff and commit in each project yourself.
+# project's claude-schedule.conf or log. By default it stops there — review
+# the diff and commit yourself — or pass --commit / --push to finish the job.
 #
 # Usage:
 #   ./sync.sh                     # every project listed in sync-targets.local
 #   ./sync.sh /path/to/project…   # just these
-#   ./sync.sh --force …           # overwrite even if the project has
-#                                 # uncommitted edits to the synced files
+#
+# Options (any order, before the paths):
+#   --force    overwrite even if a project has uncommitted edits to the
+#              synced files
+#   --commit   commit the synced files in each project ("Sync
+#              claude-session <version> (<upstream commit>)")
+#   --push     --commit, then push each project
+#
+# --commit/--push only commit the synced files (never claude-schedule.conf
+# or anything else), and skip a project that has other changes already
+# staged or isn't on its default branch. They also refuse to run while this
+# repo has uncommitted changes, so the version/commit in the message is real.
+#
+# Note: cron runs the files on disk, so a sync is live on this machine at
+# the next scheduled run even without --commit. Try risky changes on one
+# project first: ./sync.sh ~/Y_Know
 #
 # sync-targets.local (git-ignored, one project path per line, # comments
 # allowed) is this machine's list of projects — paths differ per machine.
@@ -20,9 +34,32 @@ FILES=(setup.sh start-claude.sh README.md claude-schedule.conf.example VERSION .
 VERSION="$(cat "$SRC/VERSION")"
 
 force=0
-if [ "${1:-}" = "--force" ]; then
-    force=1
+commit=0
+push=0
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --force)  force=1 ;;
+        --commit) commit=1 ;;
+        --push)   commit=1; push=1 ;;
+        --) shift; break ;;
+        -*) echo "Unknown option: $1"; echo "Usage: ./sync.sh [--force] [--commit|--push] [/path/to/project…]"; exit 1 ;;
+        *) break ;;
+    esac
     shift
+done
+
+if [ "$commit" = 1 ]; then
+    if [ -n "$(git -C "$SRC" status --porcelain --untracked-files=no)" ]; then
+        echo "claude-session has uncommitted changes — commit (and push) them first,"
+        echo "so projects record a real upstream version:"
+        git -C "$SRC" status --short --untracked-files=no | sed 's/^/   /'
+        exit 1
+    fi
+    UPSTREAM_SHA="$(git -C "$SRC" rev-parse --short HEAD)"
+    if [ "$push" = 1 ] && [ -n "$(git -C "$SRC" log --oneline '@{u}..' 2>/dev/null)" ]; then
+        echo "note: claude-session has unpushed commits — projects will reference $UPSTREAM_SHA before it's on GitHub."
+        echo
+    fi
 fi
 
 if [ $# -gt 0 ]; then
@@ -31,7 +68,7 @@ elif [ -f "$TARGETS_FILE" ]; then
     mapfile -t targets < <(grep -Ev '^[[:space:]]*(#|$)' "$TARGETS_FILE")
 else
     echo "No projects given and no $TARGETS_FILE."
-    echo "Usage: ./sync.sh [--force] /path/to/project…"
+    echo "Usage: ./sync.sh [--force] [--commit|--push] /path/to/project…"
     exit 1
 fi
 
@@ -95,8 +132,46 @@ for t in "${targets[@]}"; do
         echo "   (not a git repo — nothing to diff)"
     fi
     [ -f "$dest/claude-schedule.conf" ] || echo "   note: no claude-schedule.conf yet — run $dest/setup.sh"
+
+    # --- Optional: commit (and push) just the synced files -----------------
+    if [ "$commit" = 1 ] && [ "$in_git" = 1 ]; then
+        synced_paths=("${FILES[@]/#/claude-session/}")
+        branch="$(git -C "$proj" branch --show-current)"
+        default="$(git -C "$proj" symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null || echo origin/main)"
+        default="${default#origin/}"
+        if [ "$branch" != "$default" ]; then
+            echo "!! on branch '$branch', not '$default' — not committing (commit it yourself)"
+            failed=1
+        elif [ -n "$(cd "$proj" && git diff --cached --name-only -- . "${synced_paths[@]/#/:!}")" ]; then
+            echo "!! other changes are already staged — not committing, so they aren't swept in:"
+            (cd "$proj" && git diff --cached --name-status -- . "${synced_paths[@]/#/:!}") | sed 's/^/   /'
+            failed=1
+        else
+            (cd "$proj" && git add -- "${synced_paths[@]}")
+            if (cd "$proj" && git diff --cached --quiet); then
+                echo "   nothing to commit"
+            else
+                (cd "$proj" && git commit -q -m "Sync claude-session $VERSION ($UPSTREAM_SHA)" \
+                    -m "From https://github.com/Yuzhouboat/claude-session at $UPSTREAM_SHA.")
+                echo "   committed: $(git -C "$proj" log --oneline -1)"
+            fi
+            if [ "$push" = 1 ]; then
+                if [ -z "$(git -C "$proj" log --oneline '@{u}..' 2>/dev/null)" ]; then
+                    echo "   nothing to push"
+                elif git -C "$proj" push -q 2>&1 | sed 's/^/   /'; [ "${PIPESTATUS[0]}" = 0 ]; then
+                    echo "   pushed to origin/$branch"
+                else
+                    echo "!! push failed — commit is local; push it yourself"
+                    failed=1
+                fi
+            fi
+        fi
+    fi
     echo
 done
 
-echo "Review with 'git -C <project> diff -- claude-session', then commit in each project."
+if [ "$commit" = 0 ]; then
+    echo "Review with 'git -C <project> diff -- claude-session', then commit in each project"
+    echo "(or re-run with --commit / --push)."
+fi
 exit "$failed"
