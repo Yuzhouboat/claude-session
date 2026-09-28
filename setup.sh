@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
-# Setup for this project's scheduled Claude session: checks dependencies,
-# walks through each claude-schedule.conf setting (Enter keeps the current
-# value), and installs/updates/removes the cron entry for start-claude.sh
-# (which lives right next to this script). Safe to re-run any time.
-# See README.md for full instructions.
+# The real setup for a project's scheduled Claude session:
+#   1. check dependencies (tmux, claude, jq)
+#   2. walk through each claude-schedule.conf setting (Enter keeps it)
+#   3. write claude-schedule.conf
+#   4. add/replace/remove this project's crontab line for start-claude.sh
+#   5. offer to mark the project folder as trusted in Claude Code
+# `remove` instead tears down the crontab line and this project's tmux
+# sessions. Safe to re-run any time. See README.md.
 #
-# Not run directly: each project's claude-session/setup.sh (the bootstrap)
+# Not run directly: the project's claude-session/setup.sh (the bootstrap)
 # fetches this repo into claude-session/.upstream/ and execs this script
 # from there. Project-owned files (claude-schedule.conf, claude-tmux.log)
 # live one level up, in <project>/claude-session/.
@@ -21,9 +24,11 @@ SESSION_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 PROJECT_DIR="$(cd "$SESSION_DIR/.." && pwd)"
 SCRIPT_PATH="$SCRIPT_DIR/start-claude.sh"
 CONFIG_FILE="$SESSION_DIR/claude-schedule.conf"
-# Where start-claude.sh lived before the bootstrap layout (a committed copy
-# next to the project's setup.sh). A crontab line pointing there is ours too.
+# Where start-claude.sh lived before the bootstrap layout (claude-session
+# 1.x committed full copies into each project). A crontab line pointing
+# there is ours too, and gets migrated to SCRIPT_PATH.
 LEGACY_SCRIPT_PATH="$SESSION_DIR/start-claude.sh"
+TMUX_BASE="$(printf '%s' "$PROJECT_DIR" | tr '/' '-' | sed 's/^-//')"
 
 # This project's crontab line(s), current or legacy path.
 our_cron_lines() {
@@ -34,23 +39,10 @@ other_cron_lines() {
     crontab -l 2>/dev/null | grep -Fv -e "$SCRIPT_PATH" -e "$LEGACY_SCRIPT_PATH" || true
 }
 
-# --- Quick remove: `./setup.sh remove` tears down cron + the live tmux
-# session without walking through the full wizard. Leaves
-# claude-schedule.conf untouched, so re-running ./setup.sh later picks up
-# the same settings.
+# --- Quick remove: `setup.sh remove` tears down the crontab line and this
+# project's tmux sessions without the wizard. claude-schedule.conf is left
+# alone, so running setup again later brings it back as it was.
 if [ "${1:-}" = "remove" ] || [ "${1:-}" = "--remove" ]; then
-    for f in "$SCRIPT_PATH" "$CONFIG_FILE"; do
-        if [ ! -f "$f" ]; then
-            echo "Missing: $f"
-            exit 1
-        fi
-    done
-
-    # Same TMUX_BASE resolution as start-claude.sh — this is what actual
-    # tmux session names use (SESSION/HOST only matter for the Remote
-    # Control name, not for finding/killing tmux sessions here).
-    TMUX_BASE="$(printf '%s' "$PROJECT_DIR" | tr '/' '-' | sed 's/^-//')"
-
     existing="$(our_cron_lines)"
 
     matching_sessions=()
@@ -95,7 +87,7 @@ if [ "${1:-}" = "remove" ] || [ "${1:-}" = "--remove" ]; then
         echo "Killed tmux session '$s'."
     done
     echo
-    echo "Done. claude-schedule.conf is untouched — run ./setup.sh again any time to re-enable."
+    echo "Done. claude-schedule.conf is untouched — run claude-session/setup.sh again any time to re-enable."
     exit 0
 fi
 
@@ -103,24 +95,19 @@ echo "Setting up scheduled Claude for: $PROJECT_DIR"
 echo "claude-session version: $(cat "$SCRIPT_DIR/VERSION" 2>/dev/null || echo unknown)"
 echo
 
-# --- Sanity check: the pieces should already be here -----------------------
+# --- Sanity check ------------------------------------------------------------
 if [ ! -f "$SCRIPT_PATH" ]; then
-    echo "Missing: $SCRIPT_PATH"
-    echo "setup.sh expects start-claude.sh to sit next to it in claude-session/."
+    echo "Missing: $SCRIPT_PATH — the fetched copy in .upstream/ looks incomplete."
+    echo "Delete $SCRIPT_DIR and run claude-session/setup.sh again to re-fetch it."
     exit 1
 fi
 # First setup in a project: start from the example (the wizard below
 # rewrites it with this project's answers anyway).
 if [ ! -f "$CONFIG_FILE" ]; then
-    if [ -f "$SCRIPT_DIR/claude-schedule.conf.example" ]; then
-        cp "$SCRIPT_DIR/claude-schedule.conf.example" "$CONFIG_FILE"
-    else
-        : > "$CONFIG_FILE"
-    fi
+    cp "$SCRIPT_DIR/claude-schedule.conf.example" "$CONFIG_FILE"
     echo "Created $CONFIG_FILE for this project."
     echo
 fi
-chmod +x "$SCRIPT_PATH"
 
 # --- Dependency check --------------------------------------------------
 missing=()
@@ -146,7 +133,6 @@ fi
 
 # --- Load current settings (same defaults + sourcing order as start-claude.sh) --
 HOST="$(hostname -s 2>/dev/null || hostname)"
-TMUX_BASE="$(printf '%s' "$PROJECT_DIR" | tr '/' '-' | sed 's/^-//')"
 SESSION_AUTO_DEFAULT="$(basename "$PROJECT_DIR")"
 SESSION="$SESSION_AUTO_DEFAULT"
 PROMPT="hello"
@@ -219,31 +205,19 @@ fi
 echo
 
 # --- Write the settings back out --------------------------------------------
+# Same layout and wording as claude-schedule.conf.example.
 {
-    echo "# Settings for start-claude.sh in this project. Edit freely."
-    echo "#"
-    echo "# The tmux session name and the Remote Control session name are"
-    echo "# DIFFERENT strings, deliberately:"
-    echo "#   - tmux session name = this project's full path with \"/\""
-    echo "#     replaced by \"-\" (\"$TMUX_BASE-<timestamp>\" right now) —"
-    echo "#     always unique, fixed in start-claude.sh, not configurable"
-    echo "#     here or below."
-    echo "#   - Remote Control session name = claude --remote-control"
-    echo "#     --remote-control-session-name-prefix"
-    echo "#     \"\$HOST-\$SESSION-<timestamp>\" (fixed hostname prefix,"
-    echo "#     SESSION below is the human-friendly part you can edit)."
+    echo "# Settings for this project's scheduled Claude session."
+    echo "# Edit freely, or run claude-session/setup.sh to be walked through"
+    echo "# each one (it rewrites this file)."
     echo
-    echo "# SESSION controls only the Remote Control session name — NOT the"
-    echo "# tmux session name (that's the path-based name above, and can't"
-    echo "# be changed). Full Remote Control base = \"<hostname>-<SESSION>\"."
-    echo "# - Set here: used exactly as written (after the hostname prefix)."
-    echo "# - Commented out / removed: auto-derived as"
-    echo "#   \"<project-folder-name>\", which keeps tracking the folder"
-    echo "#   name if it's renamed later."
+    echo "# Human-friendly part of the Remote Control session name"
+    echo "# (\"<hostname>-<SESSION>-<timestamp>\"). Commented out = use the"
+    echo "# project folder name. Does not affect the tmux session name, which is"
+    echo "# always the project path with \"/\" replaced by \"-\" ($TMUX_BASE)."
     if [ "$session_pinned" = 1 ]; then
         echo "SESSION=\"$SESSION\""
     else
-        echo "# Currently auto: \"$SESSION\""
         echo "# SESSION=\"$SESSION\""
     fi
     echo
@@ -251,23 +225,19 @@ echo
     echo "PROMPT=\"$PROMPT\""
     echo
     echo "# Seconds to wait after launching claude before typing PROMPT."
-    echo "# Raise this if the TUI is slow to boot and the prompt gets eaten."
+    echo "# Raise this if the prompt gets eaten while claude is still booting."
     echo "BOOT_WAIT=$BOOT_WAIT"
     echo
-    echo "# Minutes of no pane output before an existing \"$TMUX_BASE-<timestamp>\" tmux session is"
-    echo "# treated as idle and killed. start-claude.sh always starts a new"
-    echo "# timestamped session on every run regardless of this value — it only"
-    echo "# controls cleanup of old ones. A session still actively producing"
-    echo "# output (even a slow task) is left running untouched, no matter"
-    echo "# how long it's been up."
+    echo "# Minutes of no pane output before an old session from this project"
+    echo "# is killed by a later run's cleanup. Sessions still producing output"
+    echo "# are never killed."
     echo "IDLE_MINUTES=$IDLE_MINUTES"
     echo
-    echo "# Cron schedule (crontab syntax) for this script. setup.sh reads this"
-    echo "# as its default and keeps it in sync with whatever it installs."
+    echo "# Cron schedule (crontab syntax). setup installs/updates the crontab"
+    echo "# line from this; editing it here alone doesn't change the crontab."
     if [ -n "$CRON_SCHEDULE" ]; then
         echo "CRON_SCHEDULE=\"$CRON_SCHEDULE\""
     else
-        echo "# No schedule set yet — set one here, or run setup.sh."
         echo "# CRON_SCHEDULE=\"0 9 * * *\""
     fi
 } > "$CONFIG_FILE"

@@ -14,7 +14,8 @@
 #   For repos you use but don't want to add this to. Only this clone has it.
 #
 # Either way, setup.sh then fetches the latest scripts into
-# claude-session/.upstream/ and walks through the settings.
+# claude-session/.upstream/ and walks through the settings. Re-running it
+# on an existing install refreshes the bootstrap files and runs setup again.
 set -euo pipefail
 
 BRANCH="${CLAUDE_SESSION_BRANCH:-main}"
@@ -24,7 +25,12 @@ local_mode=0
 while [ $# -gt 0 ]; do
     case "$1" in
         --local) local_mode=1 ;;
-        -h|--help) sed -n '2,20p' "${BASH_SOURCE[0]}" 2>/dev/null | sed 's/^# \{0,1\}//'; exit 0 ;;
+        -h|--help)
+            echo "Usage: install.sh [--local] [project-dir]"
+            echo "  (default)  add claude-session/ for committing to the project"
+            echo "  --local    add it hidden via .git/info/exclude — nothing to commit"
+            echo "project-dir defaults to the git repo you're in. Then runs setup."
+            exit 0 ;;
         -*) echo "Unknown option: $1 (usage: install.sh [--local] [project-dir])"; exit 1 ;;
         *) break ;;
     esac

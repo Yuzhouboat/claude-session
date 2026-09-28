@@ -7,9 +7,9 @@
 # Claude Code workspace trust. Re-run any time to pull the latest scripts
 # and review settings. `./setup.sh remove` tears it all down.
 #
-# Only this file, claude-schedule.conf and .gitignore belong in the
-# project's repo. Don't edit this file per project — update it from the
-# claude-session repo's bootstrap/ folder.
+# This file, claude-schedule.conf and .gitignore are the only
+# claude-session files a project keeps. Don't edit this file per project;
+# to update it, re-run install.sh (see the claude-session README).
 set -euo pipefail
 
 REPO_URL="${CLAUDE_SESSION_REPO:-https://github.com/Yuzhouboat/claude-session.git}"

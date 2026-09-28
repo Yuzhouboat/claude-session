@@ -34,7 +34,8 @@ in), and work the same from a clone of this repo: `./install.sh [--local]
 
 ## What lives where
 
-In the project's repo (committed):
+In the project (committed in shared mode; hidden via `.git/info/exclude`
+in local mode):
 ```
 claude-session/
   setup.sh               bootstrap: fetch latest scripts, then run their setup
@@ -42,7 +43,7 @@ claude-session/
   .gitignore             ignores .upstream/ and claude-tmux.log
 ```
 
-On each machine (git-ignored):
+On each machine (never committed):
 ```
 claude-session/
   .upstream/             checkout of this repo (the real scripts)
@@ -50,7 +51,9 @@ claude-session/
 ```
 
 This repo:
-- `bootstrap/setup.sh`, `bootstrap/.gitignore` — what a project commits.
+- `install.sh` — adds `claude-session/` to a project (shared or `--local`)
+  and runs setup.
+- `bootstrap/setup.sh`, `bootstrap/.gitignore` — the files a project keeps.
 - `setup.sh` — the real setup, run from `.upstream/` by the bootstrap.
 - `start-claude.sh` — what cron runs.
 - `claude-schedule.conf.example` — starting point for a new project's
@@ -64,7 +67,8 @@ One-time machine prerequisites:
 sudo apt-get update && sudo apt-get install -y git tmux jq
 systemctl is-enabled cron   # should print "enabled"
 ```
-Plus Claude Code itself (`claude` on your `PATH`).
+Plus Claude Code itself (`claude` on your `PATH`, logged in — Remote
+Control needs a claude.ai login).
 
 Then, in the project:
 ```bash
@@ -107,6 +111,11 @@ re-run there.
 To change the scripts, edit this repo and push to `main` — there's nothing
 to copy into projects.
 
+The bootstrap itself (`bootstrap/setup.sh`, `bootstrap/.gitignore`) is the
+one piece projects keep a copy of. It rarely changes; when it does, re-run
+`install.sh` (with `--local` for local installs) in each project to refresh
+it, and commit the result in shared projects.
+
 ## Quick remove
 
 ```bash
@@ -132,6 +141,17 @@ brings it back with the same settings.
    `claude --remote-control --permission-mode auto`.
 5. **Types the prompt**, pressing Enter until the turn is actually running.
 6. **Logs** the outcome to `claude-tmux.log`.
+
+### Log lines
+
+| Line starts with | Meaning |
+|---|---|
+| `started tmux session …` | Run launched and the prompt is running |
+| `killed idle session …` | Cleanup removed an old, silent session |
+| `skipped: previous session … still running a turn` | Previous run still busy; this run did nothing |
+| `ERROR: Claude Code does not trust …` | Project folder not trusted — re-run setup |
+| `ERROR: claude exited during startup …` | `claude` quit right away (PATH, login, …) — run `start-claude.sh` by hand to see why |
+| `WARNING: … prompt may be stuck unsubmitted` | Session is up but the prompt never started; attach and check |
 
 ### Session names
 
@@ -173,7 +193,8 @@ cat claude-session/claude-tmux.log               # run history
 |---|---|
 | `Ctrl-b d` | detach (session keeps running) |
 | `Ctrl-b [` | scroll mode (`q` to exit) |
-| `Ctrl-b $` | rename session |
+
+Don't rename these sessions: cleanup and the busy check find them by name.
 
 End a session with `tmux kill-session -t <name>`, or
 `./claude-session/setup.sh remove` to stop everything for the project.

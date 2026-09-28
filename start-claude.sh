@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
-# Always launches a new timestamped tmux session with an interactive
-# `claude` session inside it, then types a starting prompt into it. Before
-# doing that, sweeps existing sessions for this project and kills any that
-# have been idle (no pane output) for IDLE_MINUTES or more — active ones
-# are left running untouched, so several can coexist. If one of them is
-# still in the middle of a turn, this run is skipped instead.
+# One scheduled run of this project's Claude session:
+#   1. kill this project's tmux sessions idle (no pane output) for
+#      IDLE_MINUTES or more — sessions still producing output are left alone
+#   2. skip the run if one of them is still mid-turn
+#   3. refuse to launch if Claude Code doesn't trust the project folder
+#   4. start a new timestamped tmux session running an interactive `claude`
+#   5. type PROMPT into it and make sure the turn actually started
+# Every outcome is one line in claude-session/claude-tmux.log.
 #
 # The tmux session name and the Remote Control session name are DIFFERENT
 # strings, deliberately:
@@ -114,20 +116,20 @@ CLAUDE_JSON="$HOME/.claude.json"
 if command -v jq >/dev/null 2>&1 && [ -f "$CLAUDE_JSON" ]; then
     trusted="$(jq --arg p "$PROJECT_DIR" '.projects[$p].hasTrustDialogAccepted // false' "$CLAUDE_JSON" 2>/dev/null || echo unknown)"
     if [ "$trusted" = "false" ]; then
-        log "ERROR: Claude Code does not trust '$PROJECT_DIR' (folder moved?) — not launching. Run ./setup.sh here, or open claude in this folder once and choose \"Yes, I trust this folder\"."
+        log "ERROR: Claude Code does not trust '$PROJECT_DIR' (folder moved?) — not launching. Run claude-session/setup.sh there, or open claude in that folder once and choose \"Yes, I trust this folder\"."
         exit 1
     fi
 fi
 
-# --- Always start a new timestamped session ---------------------------------
+# --- Start a new timestamped session ----------------------------------------
 TIMESTAMP="$(date +%H%M-%m%d%Y)"
 NEW_SESSION="${TMUX_BASE}-${TIMESTAMP}"
 REMOTE_PREFIX="${REMOTE_BASE}-${TIMESTAMP}"
 
-# Credentials (API tokens, database creds, etc.) the project's skills
-# need. Cron doesn't inherit your interactive
-# shell's exports, so source them from ~/.env (shared across projects)
-# inside the tmux pane itself, right before exec'ing claude.
+# Credentials (API tokens, database creds, etc.) the project's skills need.
+# Cron doesn't inherit your interactive shell's exports, so source them from
+# ~/.env (shared across projects) inside the tmux pane, right before
+# exec'ing claude.
 ENV_FILE="$HOME/.env"
 
 tmux new-session -d -s "$NEW_SESSION" -c "$PROJECT_DIR" \
@@ -136,6 +138,13 @@ tmux new-session -d -s "$NEW_SESSION" -c "$PROJECT_DIR" \
 # Give the TUI time to boot before typing into it. Bump BOOT_WAIT in
 # claude-schedule.conf if the machine is slow and the prompt gets eaten.
 sleep "$BOOT_WAIT"
+
+# If claude exited during startup (not on cron's PATH, not logged in, …)
+# the session is already gone; say so instead of dying on send-keys below.
+if ! tmux has-session -t "$NEW_SESSION" 2>/dev/null; then
+    log "ERROR: claude exited during startup — session '$NEW_SESSION' is gone. Run $SCRIPT_DIR/start-claude.sh by hand and watch the tmux pane to see why."
+    exit 1
+fi
 
 tmux send-keys -t "$NEW_SESSION" "$PROMPT" Enter
 
