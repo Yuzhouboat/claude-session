@@ -9,21 +9,28 @@ scripts from this repo and sets everything up.
 
 ## Adding it to a project
 
+From inside the project:
+
+**Shared with the repo** — commit it, and everyone who clones the project
+just runs `./claude-session/setup.sh`:
 ```bash
-cd /path/to/your-project
-mkdir -p claude-session
-curl -fsSL https://raw.githubusercontent.com/Yuzhouboat/claude-session/main/bootstrap/setup.sh -o claude-session/setup.sh
-curl -fsSL https://raw.githubusercontent.com/Yuzhouboat/claude-session/main/bootstrap/.gitignore -o claude-session/.gitignore
-chmod +x claude-session/setup.sh
-./claude-session/setup.sh
+bash <(curl -fsSL https://raw.githubusercontent.com/Yuzhouboat/claude-session/main/install.sh)
 git add claude-session && git commit -m "Add scheduled Claude session"
 ```
 
-(Or copy `bootstrap/setup.sh` and `bootstrap/.gitignore` from a clone of
-this repo.)
+**Local only** — for a repo you've cloned but don't want to add this to.
+`claude-session/` is hidden through that clone's `.git/info/exclude`, so it
+never shows in `git status` and can't be committed by accident:
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/Yuzhouboat/claude-session/main/install.sh) --local
+```
+Refused if the repo already tracks a `claude-session/` folder. To
+uninstall: `./claude-session/setup.sh remove && rm -rf claude-session`,
+then delete the `/claude-session/` line from `.git/info/exclude`.
 
-After that, anyone who clones the project runs `./claude-session/setup.sh`
-and is done.
+Both forms take an optional project path (default: the git repo you're
+in), and work the same from a clone of this repo: `./install.sh [--local]
+[project-dir]`. Either way the installer then runs setup (below).
 
 ## What lives where
 

@@ -311,7 +311,8 @@ if [ -n "$CRON_SCHEDULE" ]; then
         echo "  $CRON_LINE"
         read -rp "Add it now? [y/N] " ans
         if [[ "$ans" =~ ^[Yy]$ ]]; then
-            (crontab -l 2>/dev/null; echo "$CRON_LINE") | crontab -
+            # `crontab -l` fails when there's no crontab yet (fresh machine).
+            (crontab -l 2>/dev/null || true; echo "$CRON_LINE") | crontab -
             echo "Added to crontab."
         else
             echo "Skipped. Add it later with: crontab -e"
