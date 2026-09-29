@@ -139,7 +139,7 @@ brings it back with the same settings.
 4. **Starts a new tmux session** that loads `~/.env` (cron doesn't inherit
    your shell's exports) and runs
    `claude --remote-control --permission-mode auto`.
-5. **Types the prompt**, pressing Enter until the turn is actually running.
+5. **Types the prompt** once the input box is ready, pressing Enter until the turn is actually running — and retyping it if it got lost during boot.
 6. **Logs** the outcome to `claude-tmux.log`.
 
 ### Log lines

@@ -135,8 +135,8 @@ ENV_FILE="$HOME/.env"
 tmux new-session -d -s "$NEW_SESSION" -c "$PROJECT_DIR" \
     bash -c "[ -f '$ENV_FILE' ] && { set -a; source '$ENV_FILE'; set +a; }; exec claude --remote-control --remote-control-session-name-prefix '${REMOTE_PREFIX}' --permission-mode auto"
 
-# Give the TUI time to boot before typing into it. Bump BOOT_WAIT in
-# claude-schedule.conf if the machine is slow and the prompt gets eaten.
+# Give the TUI time to boot before typing into it (a minimum — see the
+# readiness wait below).
 sleep "$BOOT_WAIT"
 
 # If claude exited during startup (not on cron's PATH, not logged in, …)
@@ -146,23 +146,42 @@ if ! tmux has-session -t "$NEW_SESSION" 2>/dev/null; then
     exit 1
 fi
 
+pane() { tmux capture-pane -t "$NEW_SESSION" -p 2>/dev/null; }
+
+# BOOT_WAIT is only a minimum: also wait (up to READY_TIMEOUT seconds) for
+# the input box's footer, so a slow boot — e.g. several projects launching
+# in the same minute — doesn't swallow the typed prompt.
+READY_TIMEOUT=30
+for _ in $(seq "$READY_TIMEOUT"); do
+    pane | grep -q "shift+tab to cycle" && break
+    sleep 1
+done
+
 tmux send-keys -t "$NEW_SESSION" "$PROMPT" Enter
 
-# One Enter is often not enough to actually submit: a PROMPT starting with
-# "/" opens claude's slash-command autocomplete dropdown, which eats the
-# first Enter instead of submitting, and remote-control's first-run
-# screens can eat a second one too — leaving $PROMPT sitting unsubmitted
-# in the input box indefinitely. Keep resending Enter until the footer
-# shows "esc to interrupt" (only appears once a turn is actually running),
-# or give up after a few tries and log it so a stuck session is visible.
+# Keep going until the footer shows "esc to interrupt" (only there while a
+# turn is running). Two ways the first try can fail:
+# - The prompt sits unsubmitted: a PROMPT starting with "/" opens the
+#   slash-command dropdown, which eats the first Enter, and
+#   remote-control's first-run screens can eat another. Press Enter again.
+# - The prompt was lost: typed while claude was still drawing, leaving an
+#   empty input box. Pressing Enter can't fix that, so clear the line and
+#   type it again.
+# Give up after a few tries and log it so a stuck session is visible.
+PROMPT_HEAD="${PROMPT:0:20}"
 submitted=0
-for attempt in 1 2 3 4 5 6; do
+for attempt in 1 2 3 4 5 6 7 8 9 10; do
     sleep 1
-    if tmux capture-pane -t "$NEW_SESSION" -p 2>/dev/null | grep -q "esc to interrupt"; then
+    if pane | grep -q "esc to interrupt"; then
         submitted=1
         break
     fi
-    tmux send-keys -t "$NEW_SESSION" Enter
+    if pane | grep -qF -- "$PROMPT_HEAD"; then
+        tmux send-keys -t "$NEW_SESSION" Enter
+    else
+        tmux send-keys -t "$NEW_SESSION" C-u
+        tmux send-keys -t "$NEW_SESSION" "$PROMPT" Enter
+    fi
 done
 
 if [ "$submitted" = 1 ]; then
