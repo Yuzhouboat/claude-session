@@ -165,10 +165,14 @@ tmux send-keys -t "$NEW_SESSION" "$PROMPT" Enter
 #   slash-command dropdown, which eats the first Enter, and
 #   remote-control's first-run screens can eat another. Press Enter again.
 # - The prompt was lost: typed while claude was still drawing, leaving an
-#   empty input box. Pressing Enter can't fix that, so clear the line and
+#   empty input box. Pressing Enter can't fix that, so clear the box and
 #   type it again.
+# A long prompt wraps across lines in the input box, so compare with all
+# whitespace removed. Clearing takes several C-u presses, since each one
+# only clears the current line of a multi-line input.
 # Give up after a few tries and log it so a stuck session is visible.
-PROMPT_HEAD="${PROMPT:0:20}"
+squash() { tr -d '[:space:]'; }
+PROMPT_HEAD="$(printf '%s' "$PROMPT" | squash | cut -c1-40)"
 submitted=0
 for attempt in 1 2 3 4 5 6 7 8 9 10; do
     sleep 1
@@ -176,10 +180,11 @@ for attempt in 1 2 3 4 5 6 7 8 9 10; do
         submitted=1
         break
     fi
-    if pane | grep -qF -- "$PROMPT_HEAD"; then
+    if pane | squash | grep -qF -- "$PROMPT_HEAD"; then
         tmux send-keys -t "$NEW_SESSION" Enter
     else
-        tmux send-keys -t "$NEW_SESSION" C-u
+        tmux send-keys -t "$NEW_SESSION" Escape
+        for _ in 1 2 3 4 5 6 7 8; do tmux send-keys -t "$NEW_SESSION" C-u; done
         tmux send-keys -t "$NEW_SESSION" "$PROMPT" Enter
     fi
 done
